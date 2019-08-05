@@ -40,7 +40,7 @@
   [m [r c]]
   (nth (nth m r) c))
 
-(defn matrix-cache
+(defn matrix-lookup
   "Build a cache of Character > matrix index."
   [matrix] 
   (let [idxs (for [x (range 0 5)
@@ -52,28 +52,37 @@
       {}
       idxs)))
 
-(defn encoded-pair [matrix matrix-lookup]
+(defn encoded-pair [dir-fn matrix matrix-lookup]
   (let [m-gt #(matrix-get matrix %)]
     (fn [pair]
       (let [[[ar ac] [br bc]] (map matrix-lookup pair)]
         (cond
-          (= ar br) (list (m-gt [ar (mod (inc ac) 5)])
-                          (m-gt [br (mod (inc bc) 5)]))
-          (= ac bc) (list (m-gt [(mod (inc ar) 5) ac])
-                          (m-gt [(mod (inc br) 5) bc]))
+          (= ar br) (list (m-gt [ar (mod (dir-fn ac) 5)])
+                          (m-gt [br (mod (dir-fn bc) 5)]))
+          (= ac bc) (list (m-gt [(mod (dir-fn ar) 5) ac])
+                          (m-gt [(mod (dir-fn br) 5) bc]))
           :else (list (m-gt [ar bc])
                       (m-gt [br ac])))))))
 
 (defn encode
   "Given a message and key, encode using the plaifair algorithm."
-  [message key]
-  (let [message-digraph (digraph message)
-        matrix (key-matrix (key-col key))
-        matrix-lookup (matrix-cache matrix)]
-    (->> message-digraph
-         (map (encoded-pair matrix matrix-lookup))
-         (map #(apply str %))
-         (str/join " "))))
+  ([message key] (encode message key inc))
+  ([message key dir-fn]
+   (let [message-digraph (digraph message)
+         matrix (key-matrix (key-col key))
+         matrix-lookup (matrix-lookup matrix)]
+     (->> message-digraph
+          (map (encoded-pair dir-fn matrix matrix-lookup))
+          (map #(apply str %))
+          (str/join " ")))))
+
+(defn decode
+  "Given an encoded message and key, decode"
+  [encoded-msg key]
+  (-> encoded-msg
+      (encode key dec)
+      (str/replace " " "")))
+
 
 (deftest play-fair
   (testing 'digraph
@@ -98,7 +107,7 @@
              (\T \U \V \X \Y))
            (key-matrix '(\H \E \L \O \W \R \D)
                        {:excluded-char \Z}))))
-  (testing 'matrix-cache
+  (testing 'matrix-lookup
     (let [matrix '((\H \E \L \O \W)
                    (\R \D \A \B \C)
                    (\F \G \I \J \K)
@@ -109,15 +118,15 @@
               \K [2 4] \L [0 2] \M [3 0] \N [3 1] \O [0 3]
               \P [3 2] \Q [3 3] \R [1 0] \S [3 4] \T [4 0]
               \U [4 1] \V [4 2] \W [0 4] \X [4 3] \Y [4 4]}
-             (matrix-cache matrix)))))
+             (matrix-lookup matrix)))))
   (testing 'encoded-pair
     (let [matrix '((\H \E \L \O \W)
                    (\R \D \A \B \C)
                    (\F \G \I \J \K)
                    (\M \N \P \Q \S)
                    (\T \U \V \X \Y))
-          cache  (matrix-cache matrix)
-          encoding-fn (encoded-pair matrix cache)]
+          cache  (matrix-lookup matrix)
+          encoding-fn (encoded-pair inc matrix cache)]
       (testing "Row without wrapping"
         (is (= '(\E \W) (encoding-fn '(\H \O)))))
       (testing "Row with wrapping"
@@ -129,7 +138,9 @@
       (testing "Rectangle"
         (is (= '(\A \T) (encoding-fn '(\R \V)))))))
   (testing 'encoding
-    (is (= "LF GD MW DN WO CV" (encode "hide the gold" "hello world")))))
+    (is (= "LF GD MW DN WO CV" (encode "hide the gold" "hello world"))))
+  (testing 'decoding
+    (is (= "HIDETHEGOLDZ" (decode "LF GD MW DN WO CV" "hello world")))))
 
 
 
